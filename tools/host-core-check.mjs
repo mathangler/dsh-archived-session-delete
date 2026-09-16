@@ -16,7 +16,17 @@
  *
  * Exits 0 when every assertion holds, 1 otherwise.
  */
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, symlinkSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  chmodSync,
+  symlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -145,6 +155,34 @@ try {
   const missing = await handlers.delete({ sessionId: 'session-99999999-9999-4999-8999-999999999999' });
   check('succeeds without touching anything', missing.ok === true, JSON.stringify(missing));
   check('reports zero removed paths', /deleted 0 path\(s\)/.test(missing.steps.join(' | ')), missing.steps.join(' | '));
+
+  // --- degradation rule: a scan survives what a delete must report --------
+  // Read-only discovery skips an unreadable subtree; a mutation stays strict.
+  console.log('\ndegradation rule');
+  const DENIED = 'session-66666666-6666-4666-8666-666666666666';
+  const deniedDir = plant(DENIED, 64);
+  const locked = join(deniedDir, 'locked');
+  mkdirSync(locked);
+  writeFileSync(join(locked, 'unreadable.bin'), 'z'.repeat(4096));
+  chmodSync(locked, 0o000);
+  let trulyDenied = false;
+  try {
+    readdirSync(locked);
+  } catch (error) {
+    trulyDenied = true;
+  }
+  if (!trulyDenied) {
+    console.log('  skip unreadable-subtree case — this platform/user still reads mode 000');
+  } else {
+    const scanWithDenied = await handlers.orphans();
+    const deniedOrphan = scanWithDenied.orphans.find((o) => o.id === DENIED);
+    check('the scan lists the session despite the locked subtree', deniedOrphan !== undefined);
+    // plant() writes exactly 64 + 16 readable bytes; the locked 4096 are skipped.
+    check('the scan still counted the readable bytes', deniedOrphan !== undefined && deniedOrphan.bytes === 80, 'bytes=' + (deniedOrphan && deniedOrphan.bytes));
+  }
+  chmodSync(locked, 0o700);
+  const deniedDelete = await handlers.delete({ sessionId: DENIED });
+  check('the delete removes the locked subtree too', deniedDelete.ok === true && !existsSync(deniedDir), JSON.stringify(deniedDelete));
 
   // --- containment: a symlinked session dir never deletes its target ------
   console.log('\ncontainment');
