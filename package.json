@@ -1,0 +1,50 @@
+{
+  "name": "dsh-archived-session-delete",
+  "version": "0.1.1",
+  "description": "A DeepSeek Harness plugin for the Settings dialog: the Archived sessions page gains a permanent Delete action per row, and orphan sessions (on-disk session directories referenced by no workspace and not archived) can be scanned and deleted too. Deletion matches the clean-dsh-sessions skill: the session data directory, its session_projcache record, and its index entries are all removed.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/host-core.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "bundle",
+    "sessions",
+    "archived",
+    "delete",
+    "orphan",
+    "settings"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots",
+        "locale",
+        "uiWorkspace"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
