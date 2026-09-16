@@ -14,11 +14,11 @@ session log.
 
 ## Requirements
 
-- DSH `0.1.5-rc.1`
+- DSH `0.1.6-alpha.1`
 - Node.js `>=20`
 - The `web` profile (this plugin ships a browser half)
 
-Verified on DSH `0.1.5-rc.1`, pnpm `12.4.1`.
+Verified on DSH `0.1.6-alpha.1`, pnpm `12.4.1`.
 
 ## Install
 
@@ -92,11 +92,21 @@ no archive entry hides — what deleted projects and deleted sessions leave behi
   Host holds `workspace.json` in memory and rewrites it wholesale on its next
   mutation, so editing that file is silently reverted. The host half prunes via
   `workspaceRegistry.unarchiveSession` and `Workspace.detachSession`.
-- **Detach precedes unarchive.** The grouped session list shows a session when a
-  workspace owns it *and* it is not archived, so unarchiving first would make the
-  session briefly visible. Both writes are idempotent and touch independent
-  records, so the final state is the same either way; the order only prevents
-  that intermediate frame from being renderable.
+- **The delete writes happen in a specific order**, and it is load-bearing:
+  1. detach from Workspace accounting, 2. announce `api-session/removed`,
+  3. clear the archive entry, 4. remove the data.
+
+  Two separate traps explain it. The grouped list shows a session when a
+  workspace owns it *and* it is not archived — but the **ungrouped** bucket keys
+  on the opposite (not owned), so detaching alone would relocate the row rather
+  than hide it. And the archive set is what *hides* a session everywhere, so
+  clearing it while the browser still holds the session's summary makes the row
+  appear. `api-session/removed` is the platform's own signal for "this session
+  is gone" (the shipped Session controller emits it from `session/disposed`, and
+  the browser side answers it with `handleSessionRemoved`), so announcing it
+  before step 3 is what lets the row leave the sidebar. A brief flash while the
+  writes land is expected; a row that *remains*, or a cleared archive entry
+  pointing at nothing, is not.
 - **Results render from a client-owned snapshot at the row's remembered index**,
   because the delete removes the row from the stores as part of the same call.
 - **The section is taken over, not extended.** The shipped Archived-sessions
