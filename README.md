@@ -17,6 +17,8 @@ session log.
 - DSH `0.1.6-alpha.1`
 - Node.js `>=20`
 - The `web` profile (this plugin ships a browser half)
+- **Windows, macOS or Linux** — no PowerShell/`pwsh` and no POSIX shell is
+  required (see [Platform support](#platform-support))
 
 Verified on DSH `0.1.6-alpha.1`, pnpm `12.4.1`.
 
@@ -86,6 +88,34 @@ Per session, matching the `clean-dsh-sessions` skill:
 **Orphan sessions** are on-disk session directories that no workspace owns and
 no archive entry hides — what deleted projects and deleted sessions leave behind.
 
+## Platform support
+
+Windows, macOS and Linux are supported by one code path. The host half does its
+filesystem work with `node:fs` and builds every path with `node:path`, so the
+separator, the encoding and the delete semantics come from the runtime platform
+rather than from a generated script.
+
+This was not always true. Up to `0.1.5` the host half assembled **PowerShell**
+scripts and ran them through `ctx.shell`. That seam is not a PowerShell seam:
+`@deepseek-ai/dsh-shell` is an *abstract bash executor*, and the host composes
+exactly one provider —
+
+| Platform | Provider | What actually ran |
+|---|---|---|
+| Windows (`win32`) | `@deepseek-ai/dsh-pwsh-*` | `pwsh -NoLogo -NoProfile -NonInteractive -Command <script>` |
+| macOS (`darwin`), Linux | `@deepseek-ai/dsh-bash-*` | `bash -c <script>` |
+
+So on macOS and Linux the PowerShell text was handed to bash, which answered
+`bash: =: command not found` and `syntax error near unexpected token '('` and
+exited non-zero. Every operation failed with *"could not locate the session on
+disk"* (or *"could not scan session directories"*). Two smaller Windows-only
+assumptions failed for the same reason: a hardcoded `'\\'` path joiner produced
+`~/.dsh\sessions` — a legal filename on POSIX, not a directory — and the
+`cacheRoot` was spelled with backslashes.
+
+`0.2.0` removes the shell dependency entirely. `ctx.shell` is no longer injected
+and the composition needs nothing but `webServer` and `connection`.
+
 ## Implementation notes
 
 - **Index pruning goes through the live registry**, not the file. The running
@@ -118,6 +148,12 @@ no archive entry hides — what deleted projects and deleted sessions leave behi
   composition's `webServer`, fenced by `connection.requestRejection(req)`
   before any body read. Business failures ride the 200 envelope; only transport
   faults use 4xx/5xx.
+- **Filesystem work lives in `lib/host-core.js` on `node:fs`.** That module is
+  transport-free and platform-free, which keeps the HTTP adapter a thin,
+  auditable shim and lets the delete rules be exercised with no browser, no
+  shell and no DSH process (see [Development](#development)). Removals are
+  confined to the DSH home, symlinked directories are counted but never
+  traversed, and `fs.rm` removes a symlink rather than what it points at.
 
 ## Known limitations
 
@@ -130,7 +166,8 @@ no archive entry hides — what deleted projects and deleted sessions leave behi
 ## Development
 
 `tools/` holds the verification scripts and is excluded from the published
-package — see [tools/README.md](tools/README.md).
+package — see [tools/README.md](tools/README.md). From a checkout, `npm run
+check` runs the host-core and HTTP-route suites.
 
 Working from a local checkout, install with `file:` instead; it is linked, so
 edits apply without reinstalling. `file:` and `github:` specs replace each

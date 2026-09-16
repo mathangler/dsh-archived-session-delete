@@ -7,6 +7,37 @@ the patch and README), so they never ship to users.
 Each script takes its inputs as arguments and prints a verdict; none of them
 hardcode a machine path.
 
+`npm run check` runs the two platform-neutral suites (`host-core-check` and
+`route-check`); neither needs a browser or a running DSH.
+
+## `host-core-check.mjs` — no browser, no shell, no arguments
+
+Runs the real `createHandlers()` from `lib/host-core.js` against a synthetic DSH
+home in the OS temp directory, covering `inspect`, `orphans` and `delete`, plus
+the containment rules (removals stay inside the DSH home; a symlinked session
+directory is unlinked, never its target). It also asserts that no PowerShell
+transport has crept back into the module.
+
+```bash
+node tools/host-core-check.mjs
+```
+
+This is the check that catches the Windows-only regression class: it runs
+identically on Windows, macOS and Linux, while the old PowerShell transport only
+ever ran on Windows.
+
+## `route-check.mjs` — no browser, no arguments
+
+Boots the real `apply()` from `lib/index.js` against a minimal Cordis-like
+context, binds the route it registers to a real loopback HTTP server, and drives
+it with real `fetch` requests: the method/content-type/endpoint/size guards, the
+`connection.requestRejection` fence, the success and business-failure envelopes,
+and a full delete. It also asserts that the plugin no longer injects `shell`.
+
+```bash
+node tools/route-check.mjs
+```
+
 ## `position-check.mjs` — no browser, no arguments
 
 Checks the rule that the operated row keeps its list position in every phase of

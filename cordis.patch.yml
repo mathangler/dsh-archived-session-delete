@@ -10,6 +10,11 @@
 # handler, so removing this row removes the route and nothing else about the
 # composition changes.
 #
+# The row declares no service dependency beyond `webServer` and `connection`:
+# the filesystem work runs in-process on `node:fs`, so there is no `shell`
+# injection and nothing platform-specific to configure on Windows, macOS or
+# Linux.
+#
 # The browser half needs no row here: the web server loads it from
 # `exports["./client"]` because package.json declares
 # `dsh.client.platform: "web"`.

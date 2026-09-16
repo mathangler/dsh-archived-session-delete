@@ -15,6 +15,8 @@ DSH 本身没有删除会话的能力——归档只是把会话隐藏起来，G
 - DSH `0.1.6-alpha.1`
 - Node.js `>=20`
 - `web` profile（本插件包含浏览器端）
+- **Windows、macOS 或 Linux** —— 不需要 PowerShell/`pwsh`，也不需要 POSIX shell
+  （见[平台支持](#平台支持)）
 
 已验证：DSH `0.1.6-alpha.1`、pnpm `12.4.1`。
 
@@ -77,6 +79,30 @@ dsh plugin --profile web remove dsh-archived-session-delete
 
 **孤儿会话**是磁盘上无工作区归属、也未归档的会话目录——删除项目、删除会话后留下的残留。
 
+## 平台支持
+
+Windows、macOS、Linux 共用同一段代码。Host 半用 `node:fs` 做文件操作、用 `node:path`
+拼接路径，所以分隔符、编码与删除语义都来自运行时平台，而不是来自一段现生成的脚本。
+
+这一点并非一直如此。`0.1.5` 及之前，Host 半组装 **PowerShell** 脚本并交给
+`ctx.shell` 执行。但那不是 PowerShell 通道：`@deepseek-ai/dsh-shell` 是**抽象 bash
+执行器**，宿主只会组合其中一个实现——
+
+| 平台 | 实现 | 实际执行的东西 |
+|---|---|---|
+| Windows（`win32`） | `@deepseek-ai/dsh-pwsh-*` | `pwsh -NoLogo -NoProfile -NonInteractive -Command <script>` |
+| macOS（`darwin`）、Linux | `@deepseek-ai/dsh-bash-*` | `bash -c <script>` |
+
+于是在 macOS 与 Linux 上，那段 PowerShell 文本被交给了 bash，bash 回以
+`bash: =: command not found` 与 `syntax error near unexpected token '('` 并以非零
+退出；每一次操作都以 *“could not locate the session on disk”*（或
+*“could not scan session directories”*）失败。另外两处更小的 Windows-only 假设同样
+致命：硬编码的 `'\\'` 拼接在 POSIX 上产出的是 `~/.dsh\sessions`——一个合法的**文件名**，
+而不是目录；`cacheRoot` 也写成了反斜杠。
+
+`0.2.0` 彻底移除了对 shell 的依赖：不再注入 `ctx.shell`，composition 只需要
+`webServer` 与 `connection`。
+
 ## 实现要点
 
 - **索引剪除走活动注册表，而不是改文件。** 运行中的 Host 把 `workspace.json`
@@ -101,6 +127,10 @@ dsh plugin --profile web remove dsh-archived-session-delete
 - **传输。** 在 composition 的 `webServer` 上注册单个 JSON 路由
   （`/archived-session-delete`），读取 body 之前先经 `connection.requestRejection(req)`
   信任围栏。业务失败走 200 信封，只有传输层故障使用 4xx/5xx。
+- **文件操作全部落在 `lib/host-core.js` 的 `node:fs` 上。** 该模块不碰传输层、也不依赖
+  平台，因此 HTTP 适配层得以保持轻薄可审计，删除规则也能在**无浏览器、无 shell、无 DSH
+  进程**的条件下验证（见[开发](#开发)）。删除路径被限制在 DSH home 之内；符号链接目录只
+  计入体积、绝不被遍历；递归删除遇到符号链接时删除的是链接本身，而非它指向的内容。
 
 ## 已知限制
 
@@ -112,6 +142,7 @@ dsh plugin --profile web remove dsh-archived-session-delete
 ## 开发
 
 `tools/` 存放验证脚本，且**不随包发布**——见 [tools/README.md](tools/README.md)。
+在检出目录里执行 `npm run check` 会跑 host-core 与 HTTP 路由两组检查。
 
 本地开发时改用 `file:` 安装；它是链接，改动无需重装即可生效。`file:` 与 `github:`
 两种 spec 会互相替换，验证发布前记得切回 `github:`。
