@@ -10,7 +10,15 @@ DSH otherwise has no session delete — archiving only hides a session, and the
 GUI's only "Delete" removes a *workspace registration* while keeping every
 session log.
 
-**Deletion is permanent. There is no Recycle Bin.**
+> **Deletion is permanent.** There is no Recycle Bin, no undo, and no dry-run.
+
+## Requirements
+
+- DSH `0.1.5-rc.1`
+- Node.js `>=20`
+- The `web` profile (this plugin ships a browser half)
+
+Verified on DSH `0.1.5-rc.1`, pnpm `12.4.1`.
 
 ## Install
 
@@ -18,17 +26,54 @@ session log.
 dsh plugin --profile web add github:mathangler/dsh-archived-session-delete
 ```
 
-Restart the profile, then open Settings → **Archived sessions**.
+Restart the profile, then open **Settings → Archived sessions**.
 
-To update:
+`dsh plugin` forwards to pnpm inside the profile directory, and DSH folds any
+dependency declaring `dsh.bundle.patch` into `dsh.profile.bundles`
+automatically — no config edit needed.
+
+## Update
 
 ```sh
 dsh plugin --profile web update dsh-archived-session-delete
 ```
 
-DSH targets `0.1.5-rc.1`.
+`update` re-resolves the `github:` spec and moves to the newest commit
+(verified: `5465cd8` → `62c56c1` → `4e3db86`, and a second run reports
+"Already up to date"). Restart the profile afterwards.
 
-## What a delete removes
+If an `update` ever appears to be a no-op — for example after re-tagging or
+force-pushing — fall back to reinstalling the spec:
+
+```sh
+dsh plugin --profile web remove dsh-archived-session-delete
+dsh plugin --profile web add github:mathangler/dsh-archived-session-delete
+```
+
+## Uninstall
+
+```sh
+dsh plugin --profile web remove dsh-archived-session-delete
+```
+
+Restart the profile. Removing the row removes its route and its Settings page;
+nothing else about the composition changes. **Sessions already deleted stay
+deleted** — uninstalling does not bring them back.
+
+## Usage
+
+Each archived row offers **Unarchive** and **Delete**. Delete asks for an
+in-row confirmation first: the confirm and cancel buttons occupy the same two
+fixed-width slots as the buttons they replace, so the pointer target does not
+move between the two clicks. The result then appears on that same row — green on
+success, red on failure — and a successful row retires about two seconds later.
+Nothing outside the operated row moves at any point.
+
+Below the list, **Orphan sessions** is separated by a divider and offers a
+**Scan** button. The scan walks every session directory, so it runs on demand
+rather than automatically.
+
+### What a delete removes
 
 Per session, matching the `clean-dsh-sessions` skill:
 
@@ -39,17 +84,7 @@ Per session, matching the `clean-dsh-sessions` skill:
 | Index entries | `global.archivedSessionIds`, `tables.workspaces[*].sessionIds` |
 
 **Orphan sessions** are on-disk session directories that no workspace owns and
-no archive entry hides. The scan walks every session directory, so it runs on
-demand from a **Scan** button rather than automatically.
-
-## How it behaves
-
-Every row offers **Unarchive** and **Delete**. Delete asks for an in-row
-confirmation first; the confirm and cancel buttons occupy the same two
-fixed-width slots as the buttons they replace, so the pointer target does not
-move between the two clicks. The result then appears on that same row — green on
-success, red on failure — and a successful row retires about two seconds later.
-Nothing outside the operated row moves at any point.
+no archive entry hides — what deleted projects and deleted sessions leave behind.
 
 ## Implementation notes
 
@@ -68,21 +103,29 @@ Nothing outside the operated row moves at any point.
   component renders no child slot, so a row action requires re-registering its
   id. A `list` slot rejects a duplicate id at the same priority, and the shipped
   page registers the same id — so this package registers at `priority: -1`,
-  which is the platform's endorsed way to shadow a cell.
+  the platform's endorsed way to shadow a cell.
 - **Transport.** One JSON route (`/archived-session-delete`) on the
   composition's `webServer`, fenced by `connection.requestRejection(req)`
   before any body read. Business failures ride the 200 envelope; only transport
   faults use 4xx/5xx.
 
+## Known limitations
+
+- **Permanent by design.** No undo, no Recycle Bin, no dry-run.
+- **Orphan detection is on demand**, not a background sweep.
+- **The shipped page is replaced, not extended** (see above), so this package
+  reimplements that list. A DSH upgrade that changes how the Settings shell
+  builds its navigation could require revisiting the duplicate-row handling.
+
 ## Development
 
 `tools/` holds the verification scripts and is excluded from the published
-package. See [tools/README.md](tools/README.md).
+package — see [tools/README.md](tools/README.md).
 
-When working from a local checkout, install with `file:` instead — it is linked,
-so edits apply without reinstalling. `file:` and `github:` specs replace each
-other, so switch back before verifying a release.
+Working from a local checkout, install with `file:` instead; it is linked, so
+edits apply without reinstalling. `file:` and `github:` specs replace each
+other, so switch back to `github:` before verifying a release.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
