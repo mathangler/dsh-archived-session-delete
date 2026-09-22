@@ -64,9 +64,12 @@ node tools/bundle-load.mjs \
 ```
 
 It also prints the resulting `settings.section` entries, which is how the
-duplicate-id priority requirement was found: both plugins register id
-`archived-sessions`, and a `list` slot rejects a duplicate **at the same
-priority**. That is why this package registers with `priority: -1`.
+duplicate-id priority requirement was found: on DSH `0.1.6` both plugins
+registered id `archived-sessions`, and a `list` slot rejects a duplicate **at
+the same priority**. That is why this package registers with `priority: -1`.
+On `0.1.7` the shipped page no longer exists, so the id is this package's alone
+— the priority and the nav dedup are kept as insurance, not because of a
+current collision.
 
 ## `boot-check.mjs` — real browser, exits non-zero on failure
 
@@ -76,6 +79,21 @@ changing anything the client half registers.
 
 ```bash
 node tools/boot-check.mjs "http://127.0.0.1:3150/?token=<TOKEN>" "<chrome.exe>"
+```
+
+## `nav-check.mjs` — real browser, nav verification
+
+Opens Settings and reports the boot verdict plus every nav row carrying the
+Archived-sessions label: how many there are, their text (a zero-width space is
+shown as `<ZWSP>`), and whether this package's dedup marker landed.
+
+Use it after a DSH upgrade, or whenever the nav could regress. The expected
+result is **one** row reading `已归档会话` / `Archived sessions` with no `<ZWSP>`
+left and `hasMarker: true`. On DSH `0.1.7` the shipped page is gone, so a second
+row would mean a duplicate arrived from somewhere else.
+
+```bash
+node tools/nav-check.mjs "http://127.0.0.1:3200/?token=<TOKEN>" "<chrome.exe>"
 ```
 
 ## `browser-diag.mjs` — real browser, diagnostics
@@ -90,7 +108,7 @@ node tools/browser-diag.mjs "http://127.0.0.1:3150/?token=<TOKEN>" "<chrome.exe>
 
 ## Notes
 
-- Both browser scripts launch Chrome with their own throwaway
+- All three browser scripts launch Chrome with their own throwaway
   `--user-data-dir` under the temp directory and kill only that process, so they
   never touch a browser the user already has open.
 - `dsh` on PATH is a POSIX shell script on Windows, so start the server with

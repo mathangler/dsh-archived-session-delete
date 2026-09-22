@@ -49,8 +49,12 @@ function check(label, condition, detail) {
   console.log('  FAIL ' + label + (detail === undefined ? '' : ' — ' + detail));
 }
 
-/** A workspace-registry double with the surface host-core actually reads. */
-function fakeRegistry(archived, workspaces) {
+/**
+ * A workspace-registry double with the surface host-core actually reads.
+ * `pinned` is optional: omitting it models a runtime older than DSH `0.1.7`,
+ * which has no pin set at all, so the same double covers both versions.
+ */
+function fakeRegistry(archived, workspaces, pinned) {
   const list = workspaces.map((entry) => ({
     title: entry.title,
     sessionIds: entry.sessionIds.slice(),
@@ -59,7 +63,7 @@ function fakeRegistry(archived, workspaces) {
       if (at !== -1) this.sessionIds.splice(at, 1);
     },
   }));
-  return {
+  const reg = {
     archivedSessionIds: archived.slice(),
     list() {
       return list;
@@ -69,6 +73,14 @@ function fakeRegistry(archived, workspaces) {
       if (at !== -1) this.archivedSessionIds.splice(at, 1);
     },
   };
+  if (pinned !== undefined) {
+    reg.pinnedSessionIds = pinned.slice();
+    reg.unpinSession = async function (id) {
+      const at = this.pinnedSessionIds.indexOf(id);
+      if (at !== -1) this.pinnedSessionIds.splice(at, 1);
+    };
+  }
+  return reg;
 }
 
 const home = mkdtempSync(join(tmpdir(), 'asdel-check-'));
@@ -142,6 +154,36 @@ try {
   check('removes the projcache record', !existsSync(join(home, 'storages', 'session_projcache', 'sessions', ARCHIVED + '.json')));
   check('drops the archive entry', registry.archivedSessionIds.indexOf(ARCHIVED) === -1);
   check('detaches from workspace accounting', registry.list().every((w) => w.sessionIds.indexOf(ARCHIVED) === -1));
+
+  // --- pin set: DSH 0.1.7's second registry-global id set -----------------
+  // Same double, now carrying a pin set. An id must not survive in EITHER set.
+  // ARCHIVED is already deleted above, so re-deleting it here touches no other
+  // test; ORPHAN is left intact for the orphan case below.
+  console.log('\npin set (DSH 0.1.7)');
+  const pinnedRegistry = fakeRegistry([], [], [ARCHIVED, ORPHAN]);
+  const pinnedHandlers = createHandlers(
+    { get: (name) => (name === 'workspaceRegistry' ? pinnedRegistry : undefined) },
+    { dshHome: home, emitRemoved: () => {} },
+  );
+  const pinnedDelete = await pinnedHandlers.delete({ sessionId: ARCHIVED });
+  const pinnedSteps = Array.isArray(pinnedDelete.steps) ? pinnedDelete.steps : [];
+  check('unpins the deleted session', pinnedRegistry.pinnedSessionIds.indexOf(ARCHIVED) === -1, JSON.stringify(pinnedRegistry.pinnedSessionIds));
+  check('leaves an unrelated pin alone', pinnedRegistry.pinnedSessionIds.indexOf(ORPHAN) !== -1);
+  check('reports the unpin step', pinnedSteps.some((s) => String(s).indexOf('pinnedSessionIds') !== -1), JSON.stringify(pinnedDelete));
+
+  // A runtime older than 0.1.7 has no pin set at all: the delete must still
+  // work rather than throwing on the missing property.
+  console.log('\npin set absent (pre-0.1.7 runtime)');
+  const legacyRegistry = fakeRegistry([ARCHIVED], []);
+  const legacyHandlers = createHandlers(
+    { get: (name) => (name === 'workspaceRegistry' ? legacyRegistry : undefined) },
+    { dshHome: home, emitRemoved: () => {} },
+  );
+  const legacyDelete = await legacyHandlers.delete({ sessionId: ARCHIVED });
+  const legacySteps = Array.isArray(legacyDelete.steps) ? legacyDelete.steps : [];
+  check('deletes without a pin set present', legacyDelete.ok === true, JSON.stringify(legacyDelete));
+  check('drops the archive entry without a pin set', legacyRegistry.archivedSessionIds.indexOf(ARCHIVED) === -1);
+  check('reports no unpin step', !legacySteps.some((s) => String(s).indexOf('pinnedSessionIds') !== -1));
 
   // --- delete: an orphan, including its `.json.tmp` sibling ---------------
   console.log('\ndelete (orphan session)');

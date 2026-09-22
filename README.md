@@ -14,13 +14,13 @@ session log.
 
 ## Requirements
 
-- DSH `0.1.6-alpha.1`
+- DSH `0.1.7-alpha.1`
 - Node.js `>=20`
 - The `web` profile (this plugin ships a browser half)
 - **Windows, macOS or Linux** — no PowerShell/`pwsh` and no POSIX shell is
   required (see [Platform support](#platform-support))
 
-Verified on DSH `0.1.6-alpha.1`, pnpm `12.4.1`.
+Verified on DSH `0.1.7-alpha.1`, pnpm `12.4.1`.
 
 ## Install
 
@@ -139,11 +139,21 @@ and the composition needs nothing but `webServer` and `connection`.
   pointing at nothing, is not.
 - **Results render from a client-owned snapshot at the row's remembered index**,
   because the delete removes the row from the stores as part of the same call.
-- **The section is taken over, not extended.** The shipped Archived-sessions
-  component renders no child slot, so a row action requires re-registering its
-  id. A `list` slot rejects a duplicate id at the same priority, and the shipped
-  page registers the same id — so this package registers at `priority: -1`,
-  the platform's endorsed way to shadow a cell.
+- **Every registry-global id set is pruned, and a missing one degrades quietly.**
+  DSH `0.1.7` added `pinnedSessionIds` beside `archivedSessionIds`, giving an id
+  a second way to outlive its session; the delete clears whichever set holds it,
+  so neither can keep a pointer to a session that no longer exists. A runtime
+  with no pin set reads as "nothing is pinned" rather than throwing, which is
+  how one package covers `0.1.7` and earlier without a version check.
+- **This package owns the `archived-sessions` section id.** On DSH `0.1.7` no
+  shipped package provides that page, so the section is this package's alone;
+  the platform still maps that id to the archive nav icon in the Settings shell,
+  which is why the id is kept rather than invented. On `0.1.6` the shipped
+  Archived-sessions page did register it, so this package registers at
+  `priority: -1` (the platform's endorsed way to shadow a cell) and carries a
+  small dedup that retires a second nav row for the same label. Both are
+  retained: harmless on `0.1.7`, and they keep the delete action mounted if a
+  future release restores a shipped page for this id.
 - **Transport.** One JSON route (`/archived-session-delete`) on the
   composition's `webServer`, fenced by `connection.requestRejection(req)`
   before any body read. Business failures ride the 200 envelope; only transport
@@ -159,9 +169,11 @@ and the composition needs nothing but `webServer` and `connection`.
 
 - **Permanent by design.** No undo, no Recycle Bin, no dry-run.
 - **Orphan detection is on demand**, not a background sweep.
-- **The shipped page is replaced, not extended** (see above), so this package
-  reimplements that list. A DSH upgrade that changes how the Settings shell
-  builds its navigation could require revisiting the duplicate-row handling.
+- **Session-list leftovers.** Removing a session's data does not by itself evict
+  it from the browser's in-memory Session list; that is why the delete announces
+  `api-session/removed`. A page reload re-reads the list from the Host, so a
+  deleted session can briefly reappear in the sidebar's ungrouped bucket until
+  the next refresh — a known, reported rough edge rather than a data problem.
 
 ## Development
 
