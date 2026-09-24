@@ -67,13 +67,19 @@ deleted** — uninstalling does not bring them back.
 Each archived row offers **Unarchive** and **Delete**. Delete asks for an
 in-row confirmation first: the confirm and cancel buttons occupy the same two
 fixed-width slots as the buttons they replace, so the pointer target does not
-move between the two clicks. The result then appears on that same row — green on
-success, red on failure — and a successful row retires about two seconds later.
-Nothing outside the operated row moves at any point.
+move between the two clicks. The row leaves only once the host confirms, and a
+failure leaves it exactly where it is, back at its idle buttons.
+
+Results are reported in a **notice area pinned to the bottom of the panel**, one
+message at a time: success and scan outcomes dismiss themselves after three
+seconds and offer a close button, while a failure stays until you close it or the
+next notice replaces it. The notice is the section's last child, so it is added
+*after* every row rather than pushing one down — **no row ever moves because a
+result was reported**. The area is an `aria-live` region.
 
 Below the list, **Orphan sessions** is separated by a divider and offers a
 **Scan** button. The scan walks every session directory, so it runs on demand
-rather than automatically.
+rather than automatically, and reports its outcome in the same notice area.
 
 ### What a delete removes
 
@@ -137,8 +143,17 @@ and the composition needs nothing but `webServer` and `connection`.
   before step 3 is what lets the row leave the sidebar. A brief flash while the
   writes land is expected; a row that *remains*, or a cleared archive entry
   pointing at nothing, is not.
-- **Results render from a client-owned snapshot at the row's remembered index**,
-  because the delete removes the row from the stores as part of the same call.
+- **Nothing is ever rendered INTO a list.** Each list is a plain projection of
+  its source filtered by the search box, so a row's position is a function of
+  that source order alone. An earlier revision painted the operated row (and its
+  result) into the list from a client-owned snapshot, re-inserted at a
+  remembered index — and that index was measured against a list that still
+  contained the deleted row. The next interaction then captured a position that
+  no longer existed, so a second delete landed its row one slot off. Removing
+  the remembered index, the snapshot re-insertion and the lingering window
+  removes the whole class: there is no second writer that could disagree about
+  where a row goes. `tools/orphan-path-check.mjs` drives exactly that reported
+  sequence and fails on the old build.
 - **Every registry-global id set is pruned, and a missing one degrades quietly.**
   DSH `0.1.7` added `pinnedSessionIds` beside `archivedSessionIds`, giving an id
   a second way to outlive its session; the delete clears whichever set holds it,

@@ -50,6 +50,34 @@ node tools/position-check.mjs
 
 Exits non-zero if the row moves.
 
+## `orphan-path-check.mjs` — real browser, needs a running Harness
+
+Reproduces the exact sequence reported from the UI: delete one **orphan**, then
+arm a *different* orphan while the result notice is still alive, and check where
+everything lands. Rows are addressed by index because arming a row rewrites its
+title to the confirmation prompt — a title lookup silently stops matching
+mid-flow, which is how an earlier revision of this check reported a spurious pass
+while never deleting anything.
+
+It asserts the four invariants the rewrite establishes: the deleted row leaves
+immediately rather than on a timer; the result appears in the dedicated notice
+area and not inside a list; arming a second row moves neither it nor its
+neighbours (compared in pixels); and nothing resurfaces once the notice expires.
+
+```bash
+node tools/orphan-path-check.mjs "http://127.0.0.1:3220/?token=<TOKEN>" "<chrome.exe>"
+```
+
+It needs planted orphan fixtures — empty directories under
+`<dshHome>/sessions/<any-project>/<session-id>/` are enough, since the scan
+enumerates directories. **Give them no artifact file**: a stray `session.jsonl`
+makes the workspace registry refuse to start (the backend expects
+`session.v4.jsonl.zstd`).
+
+Validated both ways: it passes on the current build and **fails on the previous
+one** (8 failed checks, including the misplacement itself), so it genuinely
+discriminates rather than merely passing.
+
 ## `bundle-load.mjs` — no browser
 
 Loads the real client bundles with a `window.__ModuleLoader__` stub and a
@@ -108,7 +136,7 @@ node tools/browser-diag.mjs "http://127.0.0.1:3150/?token=<TOKEN>" "<chrome.exe>
 
 ## Notes
 
-- All three browser scripts launch Chrome with their own throwaway
+- Every browser script launches Chrome with its own throwaway
   `--user-data-dir` under the temp directory and kill only that process, so they
   never touch a browser the user already has open.
 - `dsh` on PATH is a POSIX shell script on Windows, so start the server with
