@@ -83,6 +83,34 @@ function fakeRegistry(archived, workspaces, pinned) {
   return reg;
 }
 
+/**
+ * A storage-domain double exposing the one path host-core uses: the
+ * `session_projcache` domain's `sessions` table. `delete` evicts the record and
+ * reports whether one was there, like `KvTable.delete`.
+ */
+function fakeStorageDomain(records) {
+  const table = {
+    delete(key) {
+      if (!records.has(key)) return Promise.resolve(false);
+      records.delete(key);
+      return Promise.resolve(true);
+    },
+  };
+  return {
+    get(name) {
+      if (name !== 'session_projcache') return undefined;
+      return { table: (target) => (target === 'sessions' ? table : undefined) };
+    },
+  };
+}
+
+/** A live-session store double: only `get`, which is all the probe reads. */
+function fakeSessionStore(liveIds) {
+  const present = {};
+  for (const id of liveIds) present[id] = { id };
+  return { get: (id) => present[id] };
+}
+
 const home = mkdtempSync(join(tmpdir(), 'asdel-check-'));
 const PROJECT = '--Users-someone-project--';
 const LIVE = 'session-11111111-1111-4111-8111-111111111111';
@@ -115,8 +143,21 @@ try {
   ]);
 
   let removedAnnouncements = [];
+  // The projection cache is write-behind: its record lives in the domain's
+  // in-memory table and the file is only the durable image. Seed the record so
+  // the delete has to evict it through the domain rather than the file.
+  const projectionRecords = new Map([[ARCHIVED, { checkpoint: 'seeded' }]]);
+  const projectionDomain = fakeStorageDomain(projectionRecords);
+  const liveStore = fakeSessionStore([ARCHIVED]);
   const handlers = createHandlers(
-    { get: (name) => (name === 'workspaceRegistry' ? registry : undefined) },
+    {
+      get: (name) => {
+        if (name === 'workspaceRegistry') return registry;
+        if (name === 'storageDomain') return projectionDomain;
+        if (name === 'sessions') return liveStore;
+        return undefined;
+      },
+    },
     { dshHome: home, emitRemoved: (id) => removedAnnouncements.push(id) },
   );
 
@@ -155,6 +196,18 @@ try {
   check('drops the archive entry', registry.archivedSessionIds.indexOf(ARCHIVED) === -1);
   check('detaches from workspace accounting', registry.list().every((w) => w.sessionIds.indexOf(ARCHIVED) === -1));
 
+  // --- projection cache: evicted through its domain, not by deleting the file
+  // Deleting only the file used to leave the in-memory record, so the next
+  // write-back recreated it and the deletion came undone.
+  console.log('\nprojection record (write-behind cache)');
+  check('evicts the record through the storage domain', projectionRecords.has(ARCHIVED) === false);
+  check(
+    'reports the eviction step',
+    archivedDelete.steps.some((s) => String(s).indexOf('storageDomain') !== -1),
+    JSON.stringify(archivedDelete.steps),
+  );
+  check('reports the session as still live', archivedDelete.live === true, JSON.stringify(archivedDelete));
+
   // --- pin set: DSH 0.1.7's second registry-global id set -----------------
   // Same double, now carrying a pin set. An id must not survive in EITHER set.
   // ARCHIVED is already deleted above, so re-deleting it here touches no other
@@ -184,6 +237,22 @@ try {
   check('deletes without a pin set present', legacyDelete.ok === true, JSON.stringify(legacyDelete));
   check('drops the archive entry without a pin set', legacyRegistry.archivedSessionIds.indexOf(ARCHIVED) === -1);
   check('reports no unpin step', !legacySteps.some((s) => String(s).indexOf('pinnedSessionIds') !== -1));
+
+  // --- degradation: no storage domain and no live store -------------------
+  // A cached record is a cache, not truth, so failing to evict it must not fail
+  // the delete; and a composition without a live store must read as "not live"
+  // rather than throwing.
+  console.log('\ndegradation (no storageDomain / no sessions service)');
+  const bareRegistry = fakeRegistry([ARCHIVED], []);
+  const bareHandlers = createHandlers(
+    { get: (name) => (name === 'workspaceRegistry' ? bareRegistry : undefined) },
+    { dshHome: home, emitRemoved: () => {} },
+  );
+  const bareDelete = await bareHandlers.delete({ sessionId: ARCHIVED });
+  const bareSteps = Array.isArray(bareDelete.steps) ? bareDelete.steps : [];
+  check('deletes without a storage domain present', bareDelete.ok === true, JSON.stringify(bareDelete));
+  check('reports not-live when no live store exists', bareDelete.live === false, JSON.stringify(bareDelete));
+  check('reports no eviction step', !bareSteps.some((s) => String(s).indexOf('storageDomain') !== -1));
 
   // --- delete: an orphan, including its `.json.tmp` sibling ---------------
   console.log('\ndelete (orphan session)');

@@ -179,16 +179,39 @@ and the composition needs nothing but `webServer` and `connection`.
   shell and no DSH process (see [Development](#development)). Removals are
   confined to the DSH home, symlinked directories are counted but never
   traversed, and `fs.rm` removes a symlink rather than what it points at.
+- **The projection cache is evicted through its owning domain, not by deleting
+  its file.** `session_projcache` is a *write-behind* store: the record lives in
+  the storage domain's in-memory table and `<id>.json` is only its durable
+  image. Removing the file alone left the record behind, so the next write-back
+  — a 5 s checkpoint, a `turn/end`, or even the first cold read — wrote the file
+  straight back and the deletion silently came undone. The delete now calls
+  `storageDomain.get('session_projcache').table('sessions').delete(id)`, which
+  drops both, and only then sweeps whatever files remain. This is the same rule
+  the index pruning already follows: **go through the live owner, not the file.**
+  A cached record is a cache rather than truth, so an absent or degraded domain
+  is not an error — the delete proceeds and simply removes the files.
 
 ## Known limitations
 
 - **Permanent by design.** No undo, no Recycle Bin, no dry-run.
 - **Orphan detection is on demand**, not a background sweep.
-- **Session-list leftovers.** Removing a session's data does not by itself evict
-  it from the browser's in-memory Session list; that is why the delete announces
-  `api-session/removed`. A page reload re-reads the list from the Host, so a
-  deleted session can briefly reappear in the sidebar's ungrouped bucket until
-  the next refresh — a known, reported rough edge rather than a data problem.
+- **A still-live session keeps its sidebar row until the Host restarts.** This is
+  the one limitation a plugin cannot fix, and it is a platform boundary rather
+  than a defect here. The UI's session list is `sessionQuery.listSessions()`,
+  which **merges the Host's in-memory Session store** with what is on disk, so a
+  session that was ever activated in this process — opening it in the UI is
+  enough — keeps being listed after its files are gone. Nothing public removes
+  it: the store exposes no forget/detach/delete, and the one disposer that drops
+  an entry is a *capability* held by the agent lifecycle that created it, which a
+  plugin cannot obtain. `workspace/session-stop` only cancels work,
+  `AgentHandle.dispose()` is owner-only, and emitting `session/disposed` removes
+  nothing. DSH's own `clean-dsh-sessions` script ends by telling you to
+  **restart `dsh web`** for exactly this reason.
+
+  So the plugin does what it can instead: it **reports** whether the session was
+  still live (`live` in the delete response) and appends a note to the success
+  notice, so the leftover row is explained rather than mysterious. **The deletion
+  itself is complete** — data, cache record and every index entry are gone.
 
 ## Development
 

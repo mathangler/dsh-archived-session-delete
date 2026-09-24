@@ -158,6 +158,7 @@ try {
   check('drops the archive entry', registry.archivedSessionIds.indexOf(ARCHIVED) === -1);
   check('announces api-session/removed', emitted.length === 1 && emitted[0][0] === 'api-session/removed' && emitted[0][1] === ARCHIVED, JSON.stringify(emitted));
   check('reports the ordered steps', Array.isArray(deletedBody.value.steps) && deletedBody.value.steps.length >= 3, JSON.stringify(deletedBody.value.steps));
+  check('carries the liveness flag through the envelope', typeof deletedBody.value.live === 'boolean', JSON.stringify(deletedBody.value));
 } finally {
   await new Promise((resolve) => server.close(resolve));
   rmSync(home, { recursive: true, force: true });
