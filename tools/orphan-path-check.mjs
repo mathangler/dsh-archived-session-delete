@@ -32,7 +32,11 @@ const chromePath = process.argv[3];
 
 const FIXTURES = [
   'session-00000000-aaaa-4aaa-8aaa-000000000001',
-  'session-00000000-aaaa-4aaa-8aaa-000000000002',
+  // Deliberately long. An orphan row shows its id as the title, and the test
+  // deletes THIS row, so this is what makes the result notice wide enough to
+  // have been cut off by the old single-line rule. Shorten it and the notice
+  // stops overflowing, which would make the truncation check pass vacuously.
+  'session-00000000-aaaa-4aaa-8aaa-000000000002-with-a-deliberately-long-id-suffix',
   'session-00000000-aaaa-4aaa-8aaa-000000000003',
 ];
 
@@ -166,6 +170,18 @@ window.__asdel = {
       text: text ? text.textContent : '',
       hasClose: !!el.querySelector('.asdel-notice-close'),
       live: el.getAttribute('aria-live'),
+      // True when the text needs more room than it is given, i.e. the message
+      // was cut off. BOTH axes matter: the old single-line rule overflowed
+      // HORIZONTALLY (nowrap plus ellipsis, so scrollWidth > clientWidth while
+      // the heights stayed equal), whereas a clamped wrapping rule would
+      // overflow vertically. Checking only one axis would miss one of them.
+      clipped: text
+        ? text.scrollHeight > text.clientHeight + 1 || text.scrollWidth > text.clientWidth + 1
+        : null,
+      scrollHeight: text ? text.scrollHeight : null,
+      clientHeight: text ? text.clientHeight : null,
+      scrollWidth: text ? text.scrollWidth : null,
+      clientWidth: text ? text.clientWidth : null,
       path: (() => { const p = []; let n = el; while (n && n !== document.body) { p.push(n.tagName.toLowerCase() + (n.className ? '.' + String(n.className).split(' ')[0] : '')); n = n.parentElement; } return p.reverse().join(' > '); })(),
       noticeTop: Math.round(el.getBoundingClientRect().top),
       anyRowTop: this.nodes().length ? Math.round(this.nodes()[0].getBoundingClientRect().top) : null,
@@ -260,6 +276,11 @@ check(
 );
 check('the notice area offers a close control', notice !== null && notice.hasClose === true);
 check('the notice is an aria-live region', notice !== null && notice.live === 'polite');
+check(
+  'the notice shows the whole message, not an ellipsis',
+  notice !== null && notice.clipped === false,
+  JSON.stringify(notice),
+);
 check(
   'the notice renders OUTSIDE the list',
   notice !== null && notice.path.indexOf('ul.asdel-list') === -1,

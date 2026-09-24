@@ -1,6 +1,6 @@
 {
   "name": "dsh-archived-session-delete",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "A DeepSeek Harness plugin for the Settings dialog: the Archived sessions page gains a permanent Delete action per row, and orphan sessions (on-disk session directories referenced by no workspace and not archived) can be scanned and deleted too. Deletion matches the clean-dsh-sessions skill: the session data directory, its session_projcache record, and its index entries are all removed. Runs on Windows, macOS and Linux — the host half uses node:fs directly, so it needs no PowerShell, no shell and no platform-specific command.",
   "type": "module",
   "main": "lib/index.js",
