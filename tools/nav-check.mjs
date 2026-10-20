@@ -83,17 +83,30 @@ await send('Page.enable', {}, session);
 await send('Page.navigate', { url }, session);
 await new Promise((r) => setTimeout(r, 12000));
 
-// Open Settings so the nav renders.
+// Open Settings. DSH 0.2 moved the entry INSIDE the account menu (its label
+// carries the shortcut, e.g. "设置Ctrl+Alt+,"), so no top-level button exists
+// any more; older builds expose one directly. Try the direct control first and
+// fall back to the account menu, so one check spans both layouts.
 const opened = await send(
   'Runtime.evaluate',
   {
-    expression: `(() => {
-      const btn = [...document.querySelectorAll('button')].find(b => /设置|Settings/.test(b.getAttribute('aria-label') || '') || /设置|Settings/.test(b.textContent || ''));
-      if (!btn) return 'no-settings-trigger';
-      btn.click();
-      return 'clicked';
-    })()`,
+    awaitPromise: true,
     returnByValue: true,
+    expression: `(async () => {
+      const byAria = (re) => [...document.querySelectorAll('button')]
+        .find((b) => re.test(b.getAttribute('aria-label') || ''));
+      const direct = byAria(/^设置$|^Settings$/i);
+      if (direct) { direct.click(); return 'direct'; }
+      const trigger = byAria(/账号菜单|account menu/i);
+      if (!trigger) return 'no-settings-trigger';
+      trigger.click();
+      await new Promise((r) => setTimeout(r, 1200));
+      const item = [...document.querySelectorAll('button, [role="menuitem"], a')]
+        .find((el) => /^设置|^Settings/i.test((el.textContent || '').trim()));
+      if (!item) return 'no-settings-entry-in-menu';
+      item.click();
+      return 'menu';
+    })()`,
   },
   session,
 );

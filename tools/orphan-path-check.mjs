@@ -209,13 +209,25 @@ await evaluate(session, HELPERS);
 
 console.log('orphan-path regression check\n');
 
-// Open Settings, then the archived-sessions page.
+// Open Settings, then the archived-sessions page. DSH 0.2 moved the Settings
+// entry inside the account menu, so try a direct control first and fall back to
+// the menu — the same two-layout approach nav-check.mjs uses.
 await evaluate(
   session,
-  `(() => {
-     const btn = [...document.querySelectorAll('button')].find(b => /设置|Settings/.test(b.getAttribute('aria-label') || '') || /设置|Settings/.test(b.textContent || ''));
-     if (btn) btn.click();
-     return 'ok';
+  `(async () => {
+     const byAria = (re) => [...document.querySelectorAll('button')]
+       .find((b) => re.test(b.getAttribute('aria-label') || ''));
+     const direct = byAria(/^设置$|^Settings$/i);
+     if (direct) { direct.click(); return 'direct'; }
+     const trigger = byAria(/账号菜单|account menu/i);
+     if (!trigger) return 'no-settings-trigger';
+     trigger.click();
+     await new Promise((r) => setTimeout(r, 1200));
+     const item = [...document.querySelectorAll('button, [role="menuitem"], a')]
+       .find((el) => /^设置|^Settings/i.test((el.textContent || '').trim()));
+     if (!item) return 'no-settings-entry-in-menu';
+     item.click();
+     return 'menu';
    })()`,
 );
 await settle(2500);
