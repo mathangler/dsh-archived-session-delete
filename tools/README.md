@@ -124,6 +124,32 @@ row would mean a duplicate arrived from somewhere else.
 node tools/nav-check.mjs "http://127.0.0.1:3200/?token=<TOKEN>" "<chrome.exe>"
 ```
 
+## `metadata-check.mjs` — real browser, display metadata
+
+Plugin Manager and Settings read a bundle's title and description from its
+**exported locale JSON** (`locale/*.json`) without activating the plugin, so
+installation alone does not establish what a person sees. This opens Settings,
+goes to the Plugins page, and asserts that the localized title and description
+appear, that the raw package name is not used as the title, and that the shown
+locale matches the active UI language.
+
+```bash
+node tools/metadata-check.mjs "http://127.0.0.1:3310/?token=<TOKEN>" "<chrome.exe>" [package] [browser-lang]
+```
+
+The Plugins inventory loads asynchronously — it needs a few seconds before the
+rows exist, which is why the check waits rather than sampling immediately.
+
+**Second locale.** DSH resolves the language from `LOCALE_IDS` (`zh`, `en`) and
+the active locale id is the *filename stem* of the matching `locale/<id>.json`.
+The active language comes from a **preference stored in the Host settings
+document**, so it cannot be forced from the browser: `--lang` and
+`Emulation.setLocaleOverride` both leave `navigator.language` overridden but do
+**not** change DSH's choice when an explicit preference exists. To exercise the
+other locale, switch the language in Settings, run this check, then switch back.
+The optional `browser-lang` argument only helps on a Host with no stored
+preference, where DSH auto-detects.
+
 ## `browser-diag.mjs` — real browser, diagnostics
 
 The same harness, but instead of asserting it dumps every captured console
