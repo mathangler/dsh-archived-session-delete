@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Archived Session Delete",
+    "description": "Adds a permanent Delete action to every archived session, and can scan and delete orphan sessions that no workspace owns. Deletion removes the session data, its projection-cache record and its index entries."
+  }
+}
