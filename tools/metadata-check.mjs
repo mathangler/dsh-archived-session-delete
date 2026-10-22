@@ -141,7 +141,24 @@ const went = await evaluate(`(async () => {
   return 'clicked';
 })()`);
 console.log('  plugins page: ' + went);
-await settle(6000);
+
+// The inventory is fetched asynchronously and its latency varies, so poll for
+// the row instead of guessing a fixed delay — a too-short wait reads as a
+// missing title and reports a false failure.
+async function waitForTitle(timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const seen = await evaluate(
+      `(document.body.innerText || '').indexOf('已归档会话删除') !== -1 || (document.body.innerText || '').indexOf('Archived Session Delete') !== -1`,
+    );
+    if (seen) return true;
+    if (Date.now() >= deadline) return false;
+    await settle(700);
+  }
+}
+const appeared = await waitForTitle(20000);
+console.log('  inventory loaded: ' + appeared);
+await settle(600);
 
 const report = await evaluate(`(() => {
   const lang = document.documentElement.getAttribute('lang')
@@ -158,9 +175,45 @@ const report = await evaluate(`(() => {
     hits.push(text.slice(0, 160));
   }
   const all = document.body.innerText || '';
+  // Find the icon that belongs to THIS plugin's row: locate the title leaf, walk
+  // up to the row container, then look for an image or inline svg inside it.
+  // Reported rather than assumed, because an <svg> anywhere on the page would
+  // prove nothing (the shell's own nav icons are svgs too).
+  const icon = (() => {
+    const titles = ['已归档会话删除', 'Archived Session Delete'];
+    const leaf = [...document.querySelectorAll('*')].find(
+      (el) => el.children.length === 0 && titles.indexOf((el.textContent || '').trim()) !== -1,
+    );
+    if (!leaf) return { found: false };
+    // Walk up to the SMALLEST ancestor that already carries an image, so the
+    // sample is this row rather than a group of sibling rows.
+    let box = leaf;
+    while (box.parentElement && box.querySelectorAll('img, svg').length === 0) box = box.parentElement;
+    const imgs = [...box.querySelectorAll('img')].map((im) => {
+      const src = String(im.getAttribute('src') || '');
+      const at = src.indexOf('base64,');
+      let decoded = '';
+      try { decoded = at === -1 ? '' : atob(src.slice(at + 7)); } catch (e) { decoded = ''; }
+      return {
+        loaded: im.complete && im.naturalWidth > 0,
+        w: im.naturalWidth,
+        svgChars: decoded.length,
+        // The generic fallback artwork is an image too, so "an image loaded"
+        // proves nothing. Our own SVG carries this unique aria-label.
+        isOurs: decoded.indexOf('Archived session delete') !== -1,
+      };
+    });
+    return {
+      found: true,
+      boxClass: String(box.className || '').slice(0, 40),
+      imgs,
+      svgs: box.querySelectorAll('svg').length,
+    };
+  })();
   return JSON.stringify({
     lang,
     hits,
+    icon,
     sample: all.replace(/\\n{2,}/g, '\\n').slice(0, 2200),
     seesZhTitle: all.indexOf('已归档会话删除') !== -1,
     seesEnTitle: all.indexOf('Archived Session Delete') !== -1,
@@ -179,6 +232,12 @@ check('the localized title is on the page', data.seesZhTitle || data.seesEnTitle
 check('the localized description is on the page', data.seesZhDesc || data.seesEnDesc,
   JSON.stringify({ zh: data.seesZhDesc, en: data.seesEnDesc }));
 check('the raw package name is not used as the display title', !data.seesPackageName || data.seesZhTitle || data.seesEnTitle);
+console.log('  icon probe: ' + JSON.stringify(data.icon));
+check(
+  'the plugin row renders THIS package icon (not the generic fallback)',
+  data.icon && data.icon.found && (data.icon.imgs || []).some((im) => im.loaded && im.isOurs),
+  JSON.stringify(data.icon),
+);
 if (data.lang) {
   const wantsZh = /^zh/i.test(data.lang);
   check(
